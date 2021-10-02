@@ -15,14 +15,15 @@ type Ref struct {
 }
 
 func New(r Ref, f Fluid) *Model {
-	p := Pipe{start: r}
-	m := Model{pipes: []Pipe{p}, fluid: f}
+	p := Pipe{z: r.Z}
+	m := Model{pipes: []Pipe{p}, fluid: f, startP: r.P}
 	return &m
 }
 
 type Model struct {
-	pipes []Pipe
-	fluid Fluid
+	startP float64
+	pipes  []Pipe
+	fluid  Fluid
 }
 
 func (m *Model) Connect(p ...Pipe) *Model {
@@ -31,9 +32,9 @@ func (m *Model) Connect(p ...Pipe) *Model {
 }
 
 func (m *Model) End(P float64) (Q float64) {
-	pa := m.pipes[0].start.P
-	za := m.pipes[0].start.Z
-	zb := m.pipes[len(m.pipes)-1].start.Z
+	pa := m.startP
+	za := m.first().z
+	zb := m.last().z
 	As := (P-pa)/(gravity*m.fluid.rho) + zb - za
 	// Pipe areas
 
@@ -54,23 +55,43 @@ func (m *Model) End(P float64) (Q float64) {
 
 	return Q
 }
-func (m *Model) bs(Q float64) float64 {
-	Aa := math.Pi * m.pipes[0].d * m.pipes[0].d / 4
-	Ab := math.Pi * m.pipes[len(m.pipes)-1].d * m.pipes[len(m.pipes)-1].d / 4
 
+func (m *Model) bs(Q float64) float64 {
+	Aa := math.Pi * m.first().d * m.first().d / 4
+	Ab := math.Pi * m.last().d * m.last().d / 4
+
+	// Calculate flow energy correction factor.
+	Rea := re(m.first().d, Q/Aa, m.fluid.mu, m.fluid.rho)
+	Reb := re(m.last().d, Q/Ab, m.fluid.mu, m.fluid.rho)
 	αa := 1.
 	αb := 1.
+	if isLaminar(Rea) {
+		αa = 2.
+	}
+	if isLaminar(Reb) {
+		αb = 2.
+	}
+
 	Bs := αb/(2*Ab*gravity) - αa/(2*Aa*gravity)
 	for _, p := range m.pipes {
 		A := math.Pi * p.d * p.d / 4
 		u := Q / A
 		Bs += p.l / p.d * estimateDarcy(p.d, u, p.ε, m.fluid.mu, m.fluid.rho)
 	}
+
 	return Q
 }
 
+func (m *Model) first() Pipe {
+	return m.pipes[0]
+}
+
+func (m *Model) last() Pipe {
+	return m.pipes[len(m.pipes)-1]
+}
+
 type Fluid struct {
-	// Pa . s
+	// [Pa*s]
 	mu float64
 	// [kg/m^3]
 	rho float64
@@ -78,8 +99,17 @@ type Fluid struct {
 
 // Estimate darcy friction factor using a variant of Colebrook equation.
 func estimateDarcy(D, U, ε, mu, rho float64) float64 {
-	invsqrt := -1.8 * math.Log(math.Pow(ε/(3.7*D), 1.11)+6.9/re(D, U, mu, rho))
+	Re := re(D, U, mu, rho)
+	if isLaminar(Re) {
+		// Laminar flow condition
+		return 64 / Re
+	}
+	invsqrt := -1.8 * math.Log(math.Pow(ε/(3.7*D), 1.11)+6.9/Re)
 	return 1 / (invsqrt * invsqrt)
+}
+
+func isLaminar(Re float64) bool {
+	return Re < 2600
 }
 
 // Reynolds number

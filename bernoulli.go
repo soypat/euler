@@ -1,7 +1,8 @@
 package euler
 
 type Pipe struct {
-	start Ref
+	// Pipe starting Altitude [m]
+	z float64
 	// Interior diameter [m]
 	d float64
 	// Length [m]
@@ -26,9 +27,9 @@ func (p PipeType) New(L, z float64) Pipe {
 
 func makePipe(D, altitude, length, ε float64) Pipe {
 	return Pipe{
-		start: Ref{Z: altitude},
-		ε:     ε,
-		l:     length,
-		d:     D,
+		z: altitude,
+		ε: ε,
+		l: length,
+		d: D,
 	}
 }
